@@ -1,9 +1,11 @@
-import { Request, Response, NextFunction } from "express";
-import dotenv from "dotenv";
+import { Router, Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
+import dotenv from "dotenv";
 import User from "../models/User";
-dotenv.config(); // Charger les variables d'environnement dès le début
-// Définition de l'interface pour l'utilisateur
+
+dotenv.config(); // Charger les variables d'environnement
+
+// Interface pour req.user
 interface AuthRequest extends Request {
   user?: {
     id: string;
@@ -18,11 +20,8 @@ interface AuthRequest extends Request {
 
 const SECRET_KEY: string =
   process.env.JWT_SECRET ||
-  "c480d778c8e612ee004c25d62af12405da22359c28967c90f4145760987dd19c"; // Remplace par une vraie clé secrète
+  "c480d778c8e612ee004c25d62af12405da22359c28967c90f4145760987dd19c"; // Clé par défaut (à éviter en production)
 
-// ✅ Étendre `Request` pour inclure `user`
-
-// ✅ Middleware pour vérifier le token
 export const AuthMiddleware = async (
   req: AuthRequest,
   res: Response,
@@ -30,17 +29,18 @@ export const AuthMiddleware = async (
 ): Promise<void> => {
   try {
     const token = req.header("Authorization")?.split(" ")[1];
-    // console.log("Token reçu:", token); // Vérifie le token reçu
+    console.log("Token reçu:", token); // Log activé pour déboguer
     if (!token) {
       res.status(401).json({ message: "Accès refusé, token manquant" });
       return;
     }
 
     const decoded = jwt.verify(token, SECRET_KEY) as { id: string };
-    // console.log("Decoded token:", decoded); // Vérifie les informations du token
+    console.log("Decoded token:", decoded); // Log activé pour déboguer
     const user = await User.findByPk(decoded.id);
 
     if (!user) {
+      console.log("Utilisateur non trouvé pour l'ID:", decoded.id);
       res.status(401).json({ message: "Utilisateur non trouvé" });
       return;
     }
@@ -55,9 +55,15 @@ export const AuthMiddleware = async (
       createdBy: user.createdBy,
     };
 
-    next(); // Passer à la route suivante
-  } catch (error) {
-    res.status(401).json({ message: "Token invalide", error });
+    next();
+  } catch (error: unknown) {
+    let message = "Erreur inconnue";
+
+    if (error instanceof Error) {
+      message = error.message;
+    }
+
+    res.status(401).json({ message: "Token invalide", error: message });
   }
 };
 
@@ -67,15 +73,11 @@ export const AdminMiddleware = (
   res: Response,
   next: NextFunction
 ): void => {
-  // Ajout explicite du type `void`
   if (!req.user || req.user.role !== "admin") {
     res
       .status(403)
       .json({ message: "Accès refusé. Vous devez être administrateur." });
-    return; // Ajout du `return` pour arrêter l'exécution
+    return;
   }
-  next(); // ✅ Correct
+  next();
 };
-function next() {
-  throw new Error("Function not implemented.");
-}

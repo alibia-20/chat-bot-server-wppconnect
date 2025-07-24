@@ -26,8 +26,8 @@ router.get(
   "/me",
   AuthMiddleware,
   async (req: AuthRequest, res: Response): Promise<void> => {
-    res.json(req.user);
-    return;
+    res.json(req.user); // Renvoie les infos utilisateur
+    // Pas besoin de return après res.json
   }
 );
 
@@ -37,7 +37,7 @@ router.get(
  * @access  Privé (nécessite un token d'authentification)
  */
 // ✅ Déconnexion (optionnel)
-router.post("/logout", AuthMiddleware, (req: AuthRequest, res: Response) => {
+router.post("/logout", (req, res) => {
   res.json({ message: "Déconnexion réussie" });
 });
 export default router;

@@ -3,20 +3,15 @@ import http from "http";
 import { Server as SocketIOServer } from "socket.io";
 import cors from "cors";
 import dotenv from "dotenv";
-import sequelize from "./config/db";
 import homeRoutes from "./routes/homeRoutes.routes";
-import AuthRouteRoute from "./routes/AuthRoute.routes";
+import AuthRoute from "./routes/AuthRoute.routes"; // Renommé pour plus de clarté
 import newProductRoute from "./routes/NewProductRoute.routes";
 import Faq from "./routes/Faq.routes";
-
 import UserRoute from "./routes/UserRoute.routes";
-import qrCodeRouter from "./routes/qrCode";
-import bodyParser from "body-parser";
 import errorHandler from "./middleware/errorHandler";
 import path from "path";
-import { initializeWppClient } from "./config/initializeWppClient";
 import facebookRoutes from "./routes/facebookRoutes";
-
+import sequelize from "./config/db";
 
 // Chargement des variables d'environnement
 dotenv.config();
@@ -29,127 +24,61 @@ const server = http.createServer(app);
 const allowedOrigins = [
   "http://localhost:5173",
   "https://client-chat-boot-app.vercel.app",
-  "https://8cdaa4a104fb.ngrok-free.app",
-  "https://neutral-abnormally-liger.ngrok-free.app",
-  "http://localhost:3000",
 ];
 
 app.use(
   cors({
     origin: (origin, callback) => {
-      if (!origin || allowedOrigins.includes(origin)) {
-        callback(null, true);
+      console.log("Origine reçue :", origin);
+      if (!origin) {
+        // Pour les requêtes sans Origin (ex. OPTIONS ou Postman), autoriser localhost:5173
+        callback(null, "http://localhost:5173");
+      } else if (allowedOrigins.includes(origin)) {
+        callback(null, origin);
       } else {
         callback(new Error("Not allowed by CORS"));
       }
     },
-    methods: ["GET", "POST", "PUT", "DELETE", "PATCH"],
-    allowedHeaders: ["Content-Type", "Authorization", "Accept"],
     credentials: true,
-    preflightContinue: false,
-    optionsSuccessStatus: 204,
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
   })
 );
-app.options("*", cors({
-  origin: allowedOrigins,
-  credentials: true,
-}));
+
+// Gérer les requêtes OPTIONS pour toutes les routes
+app.options("*", cors()); // Correct, garantit que les requêtes OPTIONS sont gérées
+
 // Middlewares
-app.use(bodyParser.json());
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json()); // Remplace bodyParser.json(), intégré à Express
+app.use(express.urlencoded({ extended: true })); // Correct, pour les données de formulaires
 
 // Configuration du moteur EJS
 app.set("view engine", "ejs");
-app.set("views", path.join(__dirname, "views"));
+app.set("views", path.join(__dirname, "views")); // Correct, définit le dossier des vues
 
 // Fichiers statiques
+// Vérifiez que le dossier public existe à l'emplacement ../public par rapport à index.js
 app.use(express.static(path.join(__dirname, "../public")));
-app.use("/images/products", express.static("public/images/products"));
-app.use("/images/messages", express.static("public/images/messages"));
-
-// Route principale (page d’accueil stylisée)
-app.get("/", (req, res) => {
-  res.send(`
-    <!DOCTYPE html>
-    <html lang="fr">
-    <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>WhatsApp Bot</title>
-        <style>
-            body {
-                margin: 0;
-                padding: 0;
-                min-height: 100vh;
-                display: flex;
-                justify-content: center;
-                align-items: center;
-                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            }
-            .container {
-                background: rgba(255, 255, 255, 0.95);
-                padding: 2rem;
-                border-radius: 15px;
-                box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
-                text-align: center;
-                max-width: 400px;
-                width: 90%;
-            }
-            h1 {
-                color: #333;
-                margin-bottom: 1.5rem;
-                font-size: 1.8rem;
-            }
-            .button {
-                background: #25D366;
-                color: white;
-                border: none;
-                padding: 1rem 2rem;
-                border-radius: 8px;
-                font-size: 1.1rem;
-                cursor: pointer;
-                transition: all 0.3s ease;
-                text-decoration: none;
-                display: inline-block;
-            }
-            .button:hover {
-                background: #128C7E;
-                transform: translateY(-2px);
-            }
-            .status {
-                margin-top: 1rem;
-                padding: 0.8rem;
-                border-radius: 8px;
-                background: #f8f9fa;
-                color: #666;
-            }
-        </style>
-    </head>
-    <body>
-        <div class="container">
-            <h1>WhatsApp Bot</h1>
-            <a href="/qr" class="button">Initialiser WhatsApp</a>
-            <div class="status" id="status">Prêt à initialiser</div>
-        </div>
-    </body>
-    </html>
-  `);
-});
+app.use(
+  "/images/products",
+  express.static(path.join(__dirname, "../public/images/products"))
+);
+app.use(
+  "/images/messages",
+  express.static(path.join(__dirname, "../public/images/messages"))
+);
 
 // Initialisation de Socket.IO
 const io = new SocketIOServer(server, {
   cors: {
     origin: allowedOrigins,
-    methods: ["GET", "POST"],
+    methods: ["GET", "POST"], // Si Socket.IO a besoin d'autres méthodes, ajoutez-les
     credentials: true,
   },
 });
 
 io.on("connection", (socket) => {
   console.log("🔌 Nouvelle connexion Socket.IO:", socket.id);
-
   socket.on("disconnect", () => {
     console.log("❌ Déconnexion Socket.IO:", socket.id);
   });
@@ -158,40 +87,41 @@ io.on("connection", (socket) => {
 export { io };
 
 // Vérification des variables d’environnement essentielles
-if (!process.env.DB_HOST || !process.env.DB_USER ) {
-  console.error("❌ Variables d'environnement manquantes.");
+// Ajout de JWT_SECRET pour éviter les erreurs dans AuthMiddleware
+if (!process.env.DB_HOST || !process.env.DB_USER || !process.env.JWT_SECRET) {
+  console.error(
+    "❌ Variables d'environnement manquantes (DB_HOST, DB_USER, JWT_SECRET)."
+  );
   process.exit(1);
 }
 
 // Déclaration des routes
-app.use("/", homeRoutes);
-app.use(AuthRouteRoute);
-app.use(UserRoute);
-app.use(Faq);
-app.use("/qr", qrCodeRouter);
+// Préfixe /api pour toutes les routes, assurez-vous que le frontend utilise /api/me
+app.use("/api", homeRoutes);
+app.use("/", AuthRoute);
+app.use("/api", UserRoute);
+app.use("/api", Faq);
 app.use("/api", newProductRoute);
-app.use("/", facebookRoutes);
+app.use("/api", facebookRoutes);
+
 // Middleware global pour gérer les erreurs
 app.use(errorHandler);
 
-// Démarrage du serveur
+// Fonction de démarrage du serveur
 const startServer = async () => {
   try {
+    // Test et synchronisation DB avant de démarrer le serveur
+    await sequelize.authenticate();
+    console.log("✅ Connexion à la base de données réussie !");
+    await sequelize.sync({ alter: true }); // Attention : alter modifie la DB, utiliser avec précaution
     const PORT = process.env.PORT || 3000;
     server.listen(PORT, () => {
       console.log(`🚀 Serveur + Socket.IO lancé sur http://localhost:${PORT}`);
     });
   } catch (error) {
-    console.error("❌ Erreur au démarrage du serveur:", error);
+    console.error("❌ Impossible de démarrer le serveur, erreur DB :", error);
     process.exit(1);
   }
 };
-
-// // Synchronisation de la base de données
-// sequelize
-//   .sync({ alter: true })
-//   .then(() => console.log("✅ Base de données synchronisée"))
-//   .catch((err) => console.error("❌ Erreur de connexion DB:", err));
-// Synchronisation de la table des sessions
 
 startServer();
