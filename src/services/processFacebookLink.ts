@@ -1,56 +1,64 @@
 import axios from "axios";
-import resolveFacebookReel from "./resolveFacebookReel"; // Assure-toi que ce fichier existe
+import resolveFacebookReel from "./resolveFacebookReel";
 
-/**
- * Extrait un lien Facebook d'une chaîne de texte
- */
 function extractLink(input: string): string | null {
   const regex = /(https?:\/\/[^\s]+)/;
   const match = input.match(regex);
   return match ? match[0] : null;
 }
 
-/**
- * Fonction principale : traite un lien Facebook court (fb.me) ou reel, et retourne l'ID formaté
- */
 async function processFacebookLink(
-  shortLink: string
+  input: string
 ): Promise<{ longLink: string; formattedId: string } | null> {
-  const extractedLink = extractLink(shortLink);
-
+  const extractedLink = extractLink(input);
   if (!extractedLink) {
-    console.log("❌ Aucun lien détecté dans le message.");
+    console.log("❌ Aucun lien détecté.");
     return null;
   }
 
-  console.log("📎 Lien extrait :", extractedLink);
-
   try {
-    // Étape 1 : suivre les redirections pour obtenir le lien long
-    const response = await axios.head(extractedLink, {
-      maxRedirects: 10,
-      timeout: 8000, // ← utile pour certaines redirections lentes
-    });
-    let longLink = response.request.res.responseUrl;
-    console.log("🔗 Lien long résolu :", longLink);
+    // 🔁 Suivre les redirections (fb.me, l.php, login/?next, etc.)
+    let longLink = extractedLink;
 
-    // 🔁 Si c'est un lien reel, essaie de le résoudre
+    const headResponse = await axios.head(extractedLink, {
+      maxRedirects: 10,
+      timeout: 8000,
+    });
+
+    if (headResponse?.request?.res?.responseUrl) {
+      longLink = headResponse.request.res.responseUrl;
+      console.log("🔗 Lien long résolu :", longLink);
+    }
+
+    // 🧼 Extraire lien s’il est encodé dans login/?next ou l.php?u=
+    const url = new URL(longLink);
+    const encodedNext = url.searchParams.get("next") || url.searchParams.get("u");
+    if (encodedNext) {
+      longLink = decodeURIComponent(encodedNext);
+      console.log("🔁 Lien décodé depuis next/u= :", longLink);
+    }
+
+    // 🔍 Si c’est un reel, le résoudre via ta fonction custom
     if (longLink.includes("/reel/")) {
       const resolved = await resolveFacebookReel(longLink);
       if (resolved) {
         longLink = resolved;
-        console.log("🔗 Lien reel transformé :", longLink);
+        console.log("🎞️ Reel résolu :", longLink);
       }
     }
 
-    // Étape 2 : extraire les identifiants du lien long
+    // ✅ Regex de matching
     const regexPatterns = [
-      /facebook\.com\/(\d+)\/videos\/[^\/]+\/(\d+)/, // ✅ slug + video ID
-      /facebook\.com\/(\d+)\/posts\/(\d+)/,
-      /facebook\.com\/(\d+)\/videos\/(\d+)/,
-      /facebook\.com\/(\d+)\/photos\/(\d+)/,
       /story_fbid=(\d+)&id=(\d+)/,
-      /facebook\.com\/permalink\.php\?story_fbid=(\d+)&id=(\d+)/,
+      /permalink\.php\?story_fbid=(\d+)&id=(\d+)/,
+      /facebook\.com\/(?:\w+|\d+)\/posts\/(\d+)/,
+      /facebook\.com\/(?:\w+|\d+)\/videos\/(?:\w+\/)?(\d+)/,
+      /facebook\.com\/watch\/?\?v=(\d+)/,
+      /facebook\.com\/watch\/live\/?\?v=(\d+)/,
+      /photo\.php\?fbid=(\d+)&id=(\d+)/,
+      /facebook\.com\/(?:\w+|\d+)\/photos\/(\d+)/,
+      /facebook\.com\/reel\/(\d+)/,
+      /facebook\.com\/[^\/]+\/reels\/(\d+)/,
     ];
 
     let pageId: string | null = null;
@@ -59,19 +67,20 @@ async function processFacebookLink(
     for (const regex of regexPatterns) {
       const match = longLink.match(regex);
       if (match) {
-        if (regex.source.includes("story_fbid")) {
+        if (regex.source.includes("story_fbid") || regex.source.includes("fbid") || regex.source.includes("id=")) {
           postId = match[1];
-          pageId = match[2];
+          pageId = match[2] || "unknown"; // fallback
         } else {
-          pageId = match[1];
-          postId = match[2];
+          postId = match[1];
+          const possiblePage = longLink.match(/facebook\.com\/([\w\d\.]+)/);
+          pageId = possiblePage ? possiblePage[1] : "unknown";
         }
         break;
       }
     }
 
-    if (!pageId || !postId) {
-      console.log("❌ Aucun identifiant Facebook trouvé dans le lien.");
+    if (!pageId || !postId || pageId === "unknown") {
+      console.log("❌ Impossible d'extraire un ID de page valide.");
       return null;
     }
 
